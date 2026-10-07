@@ -40,6 +40,7 @@ export default function Home() {
   const [quest, setQuest] = useState<Quest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
 
   async function generateQuest() {
     try {
@@ -67,6 +68,7 @@ export default function Home() {
         throw new Error(data.error || "Failed to generate quest");
       }
 
+      setCompletedChallenges([]);
       setQuest(data.quest);
     } catch (error) {
       console.error(error);
@@ -79,6 +81,34 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function toggleChallenge(type: string) {
+    setCompletedChallenges((current) => {
+      if (current.includes(type)) {
+        return current.filter((item) => item !== type);
+      }
+
+      return [...current, type];
+    });
+  }
+
+  function getEarnedXp() {
+    if (!quest) return 0;
+
+    let earned = 0;
+
+    Object.values(quest.challenges).forEach((challenge) => {
+      if (completedChallenges.includes(challenge.type)) {
+        earned += challenge.xp;
+      }
+    });
+
+    if (completedChallenges.length === 4) {
+      earned += quest.completionBonus;
+    }
+
+    return earned;
   }
 
   return (
@@ -307,6 +337,45 @@ export default function Home() {
 
             </div>
 
+            <div className="mb-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+
+              <div className="flex items-center justify-between">
+
+                <div>
+                  <p className="text-sm text-zinc-400">
+                    Quest Progress
+                  </p>
+
+                  <p className="mt-1 text-2xl font-bold">
+                    {completedChallenges.length} / 4
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-sm text-zinc-400">
+                    XP Earned
+                  </p>
+
+                  <p className="mt-1 text-2xl font-bold text-lime-400">
+                    {getEarnedXp()} XP
+                  </p>
+                </div>
+
+              </div>
+
+
+              <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-800">
+
+                <div
+                  className="h-full bg-lime-400 transition-all duration-300"
+                  style={{
+                    width: `${(completedChallenges.length / 4) * 100}%`,
+                  }}
+                />
+
+              </div>
+
+            </div>
 
             {/* CHALLENGES */}
 
@@ -315,21 +384,29 @@ export default function Home() {
               <ChallengeCard
                 emoji="🏃"
                 challenge={quest.challenges.movement}
+                completed={completedChallenges.includes("movement")}
+                onToggle={() => toggleChallenge("movement")}
               />
 
               <ChallengeCard
                 emoji="🧭"
                 challenge={quest.challenges.exploration}
+                completed={completedChallenges.includes("exploration")}
+                onToggle={() => toggleChallenge("exploration")}
               />
 
               <ChallengeCard
                 emoji="📸"
                 challenge={quest.challenges.photo}
+                completed={completedChallenges.includes("photo")}
+                onToggle={() => toggleChallenge("photo")}
               />
 
               <ChallengeCard
                 emoji="🏁"
                 challenge={quest.challenges.finish}
+                completed={completedChallenges.includes("finish")}
+                onToggle={() => toggleChallenge("finish")}
               />
 
             </div>
@@ -337,18 +414,34 @@ export default function Home() {
 
             {/* COMPLETION BONUS */}
 
-            <div className="mt-6 rounded-2xl border border-lime-900 bg-lime-950/30 p-5">
+            <div
+              className={`mt-6 rounded-2xl border p-5 ${
+                completedChallenges.length === 4
+                  ? "border-lime-500 bg-lime-950/40"
+                  : "border-zinc-800 bg-zinc-900"
+              }`}
+            >
 
               <div className="flex items-center justify-between">
 
                 <div>
 
-                  <p className="font-semibold text-lime-300">
-                    Complete all challenges
+                  <p
+                    className={`font-semibold ${
+                      completedChallenges.length === 4
+                        ? "text-lime-300"
+                        : "text-zinc-300"
+                    }`}
+                  >
+                    {completedChallenges.length === 4
+                      ? "Quest Complete 🌿"
+                      : "Complete all challenges"}
                   </p>
 
                   <p className="mt-1 text-sm text-zinc-400">
-                    Finish the full quest to earn the completion bonus.
+                    {completedChallenges.length === 4
+                      ? "You earned the full quest bonus."
+                      : "Finish every challenge to unlock the bonus."}
                   </p>
 
                 </div>
@@ -412,26 +505,37 @@ function ModeButton({
 function ChallengeCard({
   emoji,
   challenge,
+  completed,
+  onToggle,
 }: {
   emoji: string;
   challenge: Challenge;
+  completed: boolean;
+  onToggle: () => void;
 }) {
-
   return (
-
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-
+    <div
+      className={`rounded-2xl border p-5 transition ${
+        completed
+          ? "border-lime-500 bg-lime-950/30"
+          : "border-zinc-800 bg-zinc-900"
+      }`}
+    >
       <div className="flex items-start gap-4">
 
         <div className="text-3xl">
-          {emoji}
+          {completed ? "✅" : emoji}
         </div>
 
         <div className="flex-1">
 
           <div className="flex items-center justify-between gap-4">
 
-            <h3 className="text-lg font-semibold">
+            <h3
+              className={`text-lg font-semibold ${
+                completed ? "text-lime-300" : ""
+              }`}
+            >
               {challenge.title}
             </h3>
 
@@ -446,19 +550,25 @@ function ChallengeCard({
           </p>
 
           {challenge.requiresPhoto && (
-
             <p className="mt-3 text-sm font-medium text-lime-300">
               📷 Photo proof required
             </p>
-
           )}
 
+          <button
+            onClick={onToggle}
+            className={`mt-4 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+              completed
+                ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                : "bg-lime-400 text-black hover:bg-lime-300"
+            }`}
+          >
+            {completed ? "Undo" : "Complete Challenge"}
+          </button>
+
         </div>
-
       </div>
-
     </div>
-
   );
 }
 
