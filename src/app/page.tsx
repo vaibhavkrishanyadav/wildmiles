@@ -41,6 +41,14 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoVerifying, setPhotoVerifying] = useState(false);
+  const [photoResult, setPhotoResult] = useState<{
+    verified: boolean;
+    confidence: number;
+    reason: string;
+    observation: string;
+  } | null>(null);
 
   async function generateQuest() {
     try {
@@ -69,6 +77,8 @@ export default function Home() {
       }
 
       setCompletedChallenges([]);
+      setPhotoPreview(null);
+      setPhotoResult(null);
       setQuest(data.quest);
     } catch (error) {
       console.error(error);
@@ -109,6 +119,91 @@ export default function Home() {
     }
 
     return earned;
+  }
+
+  function handlePhotoUpload(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file.");
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      const result = reader.result;
+
+      if (typeof result === "string") {
+        setPhotoPreview(result);
+        setPhotoResult(null);
+      }
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  async function verifyPhoto() {
+    if (!quest || !photoPreview) {
+      return;
+    }
+
+    try {
+      setPhotoVerifying(true);
+      setError("");
+      setPhotoResult(null);
+
+      const response = await fetch("/api/verify-photo", {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          challenge:
+            quest.challenges.photo.instruction,
+
+          image: photoPreview,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error || "Photo verification failed"
+        );
+      }
+
+      setPhotoResult(data.verification);
+
+      if (
+        data.verification.verified &&
+        !completedChallenges.includes("photo")
+      ) {
+        setCompletedChallenges((current) => [
+          ...current,
+          "photo",
+        ]);
+      }
+    } catch (error) {
+      console.error(error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Photo verification failed"
+      );
+    } finally {
+      setPhotoVerifying(false);
+    }
   }
 
   return (
@@ -395,11 +490,14 @@ export default function Home() {
                 onToggle={() => toggleChallenge("exploration")}
               />
 
-              <ChallengeCard
-                emoji="📸"
+              <PhotoChallengeCard
                 challenge={quest.challenges.photo}
                 completed={completedChallenges.includes("photo")}
-                onToggle={() => toggleChallenge("photo")}
+                photoPreview={photoPreview}
+                photoResult={photoResult}
+                verifying={photoVerifying}
+                onPhotoUpload={handlePhotoUpload}
+                onVerify={verifyPhoto}
               />
 
               <ChallengeCard
@@ -572,6 +670,176 @@ function ChallengeCard({
   );
 }
 
+function PhotoChallengeCard({
+  challenge,
+  completed,
+  photoPreview,
+  photoResult,
+  verifying,
+  onPhotoUpload,
+  onVerify,
+}: {
+  challenge: Challenge;
+  completed: boolean;
+
+  photoPreview: string | null;
+
+  photoResult: {
+    verified: boolean;
+    confidence: number;
+    reason: string;
+    observation: string;
+  } | null;
+
+  verifying: boolean;
+
+  onPhotoUpload: (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => void;
+
+  onVerify: () => void;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border p-5 transition ${
+        completed
+          ? "border-lime-500 bg-lime-950/30"
+          : "border-zinc-800 bg-zinc-900"
+      }`}
+    >
+      <div className="flex items-start gap-4">
+
+        <div className="text-3xl">
+          {completed ? "✅" : "📸"}
+        </div>
+
+        <div className="flex-1">
+
+          <div className="flex items-center justify-between gap-4">
+
+            <h3 className="text-lg font-semibold">
+              {challenge.title}
+            </h3>
+
+            <span className="whitespace-nowrap text-sm font-semibold text-lime-400">
+              +{challenge.xp} XP
+            </span>
+
+          </div>
+
+          <p className="mt-2 text-zinc-400">
+            {challenge.instruction}
+          </p>
+
+          <p className="mt-3 text-sm font-medium text-lime-300">
+            📷 AI verified photo proof required
+          </p>
+
+
+          {/* PHOTO UPLOAD */}
+
+          {!completed && (
+            <div className="mt-5">
+
+              <label className="inline-block cursor-pointer rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:bg-zinc-700">
+
+                📷 Choose Photo
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onPhotoUpload}
+                  className="hidden"
+                />
+
+              </label>
+
+            </div>
+          )}
+
+
+          {/* IMAGE PREVIEW */}
+
+          {photoPreview && (
+            <div className="mt-5">
+
+              <img
+                src={photoPreview}
+                alt="WildMiles challenge proof"
+                className="max-h-80 rounded-xl border border-zinc-800 object-cover"
+              />
+
+            </div>
+          )}
+
+
+          {/* VERIFY BUTTON */}
+
+          {photoPreview && !completed && (
+            <button
+              onClick={onVerify}
+              disabled={verifying}
+              className="mt-4 rounded-lg bg-lime-400 px-4 py-2 text-sm font-bold text-black transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {verifying
+                ? "AI is checking..."
+                : "Verify Photo"}
+            </button>
+          )}
+
+
+          {/* VERIFICATION RESULT */}
+
+          {photoResult && (
+            <div
+              className={`mt-5 rounded-xl border p-4 ${
+                photoResult.verified
+                  ? "border-lime-800 bg-lime-950/30"
+                  : "border-red-900 bg-red-950/30"
+              }`}
+            >
+
+              <p
+                className={`font-semibold ${
+                  photoResult.verified
+                    ? "text-lime-300"
+                    : "text-red-300"
+                }`}
+              >
+                {photoResult.verified
+                  ? "✅ Quest Verified"
+                  : "❌ Quest Not Verified"}
+              </p>
+
+              <p className="mt-2 text-sm text-zinc-300">
+                {photoResult.reason}
+              </p>
+
+              {photoResult.observation && (
+                <p className="mt-3 text-sm text-zinc-400">
+                  🌿 {photoResult.observation}
+                </p>
+              )}
+
+              <p className="mt-3 text-xs text-zinc-500">
+                Confidence:{" "}
+                {Math.round(
+                  photoResult.confidence * 100
+                )}
+                %
+              </p>
+
+            </div>
+          )}
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
 
 function Stat({
   label,
