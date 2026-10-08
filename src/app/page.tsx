@@ -102,6 +102,14 @@ export default function Home() {
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [runFinished, setRunFinished] = useState(false);
   const [questCheckpoints, setQuestCheckpoints] = useState<QuestCheckpoint[]>([]);
+  const [runRecap, setRunRecap] = useState<{
+    title: string;
+    recap: string;
+    highlight: string;
+    closingLine: string;
+  } | null>(null);
+
+  const [recapLoading, setRecapLoading] =  useState(false);
 
   const gpsWatchId = useRef<number | null>(null);
   const timerId = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -509,6 +517,7 @@ export default function Home() {
     lastAcceptedPoint.current = null;
     setGpsAccuracy(null);
     setRunFinished(false);
+    setRunRecap(null);
 
     const startTime = Date.now();
 
@@ -626,6 +635,100 @@ export default function Home() {
 
     setRunActive(false);
     setRunFinished(true);
+  }
+
+  async function generateRunRecap() {
+    if (!quest) {
+      return;
+    }
+
+    try {
+      setRecapLoading(true);
+      setRunRecap(null);
+
+      const completedChallengeDetails =
+        Object.values(quest.challenges)
+          .filter((challenge) =>
+            completedChallenges.includes(
+              challenge.type
+            )
+          )
+          .map((challenge) => ({
+            type: challenge.type,
+            title: challenge.title,
+            instruction: challenge.instruction,
+          }));
+
+      const checkpointDetails =
+        questCheckpoints.map(
+          (checkpoint) => ({
+            type: checkpoint.type,
+            title: checkpoint.title,
+            distanceKm:
+              checkpoint.distanceKm.toFixed(2),
+          })
+        );
+
+      const response = await fetch(
+        "/api/run-recap",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            distanceKm:
+              distanceKm.toFixed(2),
+
+            elapsedTime:
+              formatTime(elapsedSeconds),
+
+            averagePace:
+              `${formatPace(averagePace)} /km`,
+
+            questTitle:
+              quest.title,
+
+            completedChallenges:
+              completedChallengeDetails,
+
+            checkpoints:
+              checkpointDetails,
+
+            photoObservation:
+              photoResult?.verified
+                ? photoResult.observation
+                : null,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.error ||
+            "Failed to generate recap"
+        );
+      }
+
+      setRunRecap(data.recap);
+    } catch (error) {
+      console.error(error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate run recap"
+      );
+    } finally {
+      setRecapLoading(false);
+    }
   }
 
   return (
@@ -1327,6 +1430,44 @@ export default function Home() {
               />
 
             </div>
+
+            <div className="mt-6">
+              <button
+                onClick={generateRunRecap}
+                disabled={recapLoading}
+                className="w-full rounded-xl bg-lime-400 px-6 py-4 font-bold text-black transition hover:bg-lime-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {recapLoading
+                  ? "Writing your adventure..."
+                  : "✨ Generate Adventure Recap"}
+              </button>
+            </div>
+
+            {runRecap && (
+              <div className="mt-6 rounded-2xl border border-lime-900 bg-zinc-950 p-6">
+                <p className="text-xs font-semibold uppercase tracking-widest text-lime-400">
+                  WildMiles Story
+                </p>
+                <h3 className="mt-2 text-2xl font-bold">
+                  {runRecap.title}
+                </h3>
+                <p className="mt-4 leading-7 text-zinc-300">
+                  {runRecap.recap}
+                </p>
+                <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+                  <p className="text-xs uppercase tracking-wider text-zinc-500">
+                    Adventure Highlight
+                  </p>
+                  <p className="mt-2 text-zinc-200">
+                    🌿 {runRecap.highlight}
+                  </p>
+                </div>
+                <p className="mt-5 font-medium text-lime-300">
+                  {runRecap.closingLine}
+                </p>
+              </div>
+
+            )}
 
           </section>
 
