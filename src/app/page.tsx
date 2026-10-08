@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 
 type Challenge = {
   title: string;
@@ -30,6 +30,13 @@ type Quest = {
     difficulty: string;
     mode: string;
   };
+};
+
+type RunPoint = {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+  timestamp: number;
 };
 
 export default function Home() {
@@ -78,9 +85,25 @@ export default function Home() {
     );
   });
   const [questRewardSaved, setQuestRewardSaved] = useState(false);
+  const [runActive, setRunActive] = useState(false);
+  const [runPoints, setRunPoints] = useState<RunPoint[]>([]);
+  const [distanceKm, setDistanceKm] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsError, setGpsError] = useState("");
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [runFinished, setRunFinished] = useState(false);
+
+  const gpsWatchId = useRef<number | null>(null);
+  const timerId = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const playerLevel = getPlayerLevel(totalXp);
   const unlockedBadges = getUnlockedBadges();
+
+  const averagePace =
+  distanceKm > 0
+    ? elapsedSeconds / 60 / distanceKm
+    : 0;
 
   async function generateQuest() {
     try {
@@ -387,6 +410,117 @@ export default function Home() {
 
       setQuestRewardSaved(true);
     }
+  }
+
+  function startRun() {
+    if (!navigator.geolocation) {
+      setGpsError(
+        "Geolocation is not supported by this browser."
+      );
+      return;
+    }
+
+    setGpsError("");
+    setRunPoints([]);
+    setDistanceKm(0);
+    setElapsedSeconds(0);
+    setGpsAccuracy(null);
+    setRunFinished(false);
+
+    const startTime = Date.now();
+
+    setRunStartedAt(startTime);
+    setRunActive(true);
+
+    timerId.current = setInterval(() => {
+      setElapsedSeconds(
+        Math.floor((Date.now() - startTime) / 1000)
+      );
+    }, 1000);
+
+    gpsWatchId.current =
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const point: RunPoint = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            timestamp: position.timestamp,
+          };
+
+          setGpsAccuracy(position.coords.accuracy);
+
+          setRunPoints((currentPoints) => {
+            if (currentPoints.length === 0) {
+              return [point];
+            }
+
+            const previousPoint =
+              currentPoints[currentPoints.length - 1];
+
+            const addedDistance =
+              calculateDistanceKm(
+                previousPoint.latitude,
+                previousPoint.longitude,
+                point.latitude,
+                point.longitude
+              );
+
+            setDistanceKm((currentDistance) => {
+              return currentDistance + addedDistance;
+            });
+
+            return [...currentPoints, point];
+          });
+        },
+
+        (error) => {
+          console.error("GPS error:", error);
+
+          if (error.code === 1) {
+            setGpsError(
+              "Location permission was denied."
+            );
+          } else if (error.code === 2) {
+            setGpsError(
+              "Your location could not be determined."
+            );
+          } else if (error.code === 3) {
+            setGpsError(
+              "Location request timed out."
+            );
+          } else {
+            setGpsError(
+              "Unable to access your location."
+            );
+          }
+        },
+
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 15000,
+        }
+      );
+  }
+
+  function stopRun() {
+    if (gpsWatchId.current !== null) {
+      navigator.geolocation.clearWatch(
+        gpsWatchId.current
+      );
+
+      gpsWatchId.current = null;
+    }
+
+    if (timerId.current !== null) {
+      clearInterval(timerId.current);
+
+      timerId.current = null;
+    }
+
+    setRunActive(false);
+    setRunFinished(true);
   }
 
   return (
@@ -857,6 +991,148 @@ export default function Home() {
 
         )}
 
+        <section className="mt-10 rounded-3xl border border-zinc-800 bg-zinc-900 p-6 sm:p-8">
+
+          <div className="flex items-center justify-between gap-4">
+
+            <div>
+
+              <p className="text-sm font-semibold uppercase tracking-widest text-lime-400">
+                Live Run
+              </p>
+
+              <h2 className="mt-2 text-2xl font-bold">
+                Outdoor Tracker
+              </h2>
+
+            </div>
+
+            <div
+              className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                runActive
+                  ? "bg-lime-400/10 text-lime-400"
+                  : "bg-zinc-800 text-zinc-400"
+              }`}
+            >
+              {runActive ? "● Tracking" : "Not running"}
+            </div>
+
+          </div>
+
+
+          {/* LIVE STATS */}
+
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+
+            <RunStat
+              label="Time"
+              value={formatTime(elapsedSeconds)}
+            />
+
+            <RunStat
+              label="Distance"
+              value={`${distanceKm.toFixed(2)} km`}
+            />
+
+            <RunStat
+              label="Avg Pace"
+              value={`${formatPace(averagePace)} /km`}
+            />
+
+            <RunStat
+              label="GPS"
+              value={
+                gpsAccuracy !== null
+                  ? `±${Math.round(gpsAccuracy)} m`
+                  : "--"
+              }
+            />
+
+          </div>
+
+
+          {/* GPS ERROR */}
+
+          {gpsError && (
+            <div className="mt-5 rounded-xl border border-red-900 bg-red-950/40 p-4 text-sm text-red-300">
+              {gpsError}
+            </div>
+          )}
+
+
+          {/* START / STOP */}
+
+          <div className="mt-8">
+
+            {!runActive ? (
+
+              <button
+                onClick={startRun}
+                className="w-full rounded-xl bg-lime-400 px-6 py-4 text-lg font-bold text-black transition hover:bg-lime-300"
+              >
+                ▶ Start Run
+              </button>
+
+            ) : (
+
+              <button
+                onClick={stopRun}
+                className="w-full rounded-xl bg-red-500 px-6 py-4 text-lg font-bold text-white transition hover:bg-red-400"
+              >
+                ■ Stop Run
+              </button>
+
+            )}
+
+          </div>
+
+
+          {/* GPS POINT COUNT */}
+
+          {runActive && (
+            <p className="mt-4 text-center text-xs text-zinc-500">
+              GPS points recorded: {runPoints.length}
+            </p>
+          )}
+
+        </section>
+
+        {runFinished && (
+
+          <section className="mt-6 rounded-3xl border border-lime-900 bg-lime-950/20 p-6">
+
+            <p className="text-sm font-semibold uppercase tracking-widest text-lime-400">
+              Run Complete
+            </p>
+
+            <h2 className="mt-2 text-2xl font-bold">
+              Nice miles 🌿
+            </h2>
+
+
+            <div className="mt-6 grid grid-cols-3 gap-3">
+
+              <RunStat
+                label="Distance"
+                value={`${distanceKm.toFixed(2)} km`}
+              />
+
+              <RunStat
+                label="Time"
+                value={formatTime(elapsedSeconds)}
+              />
+
+              <RunStat
+                label="Avg Pace"
+                value={`${formatPace(averagePace)} /km`}
+              />
+
+            </div>
+
+          </section>
+
+        )}
+
       </div>
 
     </main>
@@ -900,6 +1176,83 @@ function ModeButton({
   );
 }
 
+function calculateDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) {
+  const earthRadiusKm = 6371;
+
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c =
+    2 *
+    Math.atan2(
+      Math.sqrt(a),
+      Math.sqrt(1 - a)
+    );
+
+  return earthRadiusKm * c;
+}
+
+function formatTime(totalSeconds: number) {
+  const hours = Math.floor(totalSeconds / 3600);
+
+  const minutes = Math.floor(
+    (totalSeconds % 3600) / 60
+  );
+
+  const seconds = totalSeconds % 60;
+
+  return [hours, minutes, seconds]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
+}
+
+function formatPace(paceMinutes: number) {
+  if (!Number.isFinite(paceMinutes) || paceMinutes <= 0) {
+    return "--:--";
+  }
+
+  const minutes = Math.floor(paceMinutes);
+
+  const seconds = Math.round(
+    (paceMinutes - minutes) * 60
+  );
+
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function RunStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+
+      <p className="text-xs uppercase tracking-wide text-zinc-500">
+        {label}
+      </p>
+
+      <p className="mt-2 text-xl font-bold">
+        {value}
+      </p>
+
+    </div>
+  );
+}
 
 function ChallengeCard({
   emoji,
