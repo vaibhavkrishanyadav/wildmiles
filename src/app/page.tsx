@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import RunMap from "@/components/RunMap";
 
 type Challenge = {
   title: string;
@@ -96,6 +97,7 @@ export default function Home() {
 
   const gpsWatchId = useRef<number | null>(null);
   const timerId = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastAcceptedPoint = useRef<RunPoint | null>(null);
 
   const playerLevel = getPlayerLevel(totalXp);
   const unlockedBadges = getUnlockedBadges();
@@ -424,6 +426,7 @@ export default function Home() {
     setRunPoints([]);
     setDistanceKm(0);
     setElapsedSeconds(0);
+    lastAcceptedPoint.current = null;
     setGpsAccuracy(null);
     setRunFinished(false);
 
@@ -448,16 +451,32 @@ export default function Home() {
             timestamp: position.timestamp,
           };
 
+          // Always display the latest reported accuracy,
+          // even if we reject the point from the route.
           setGpsAccuracy(position.coords.accuracy);
 
-          setRunPoints((currentPoints) => {
-            if (currentPoints.length === 0) {
-              return [point];
-            }
+          const previousPoint =
+            lastAcceptedPoint.current;
 
-            const previousPoint =
-              currentPoints[currentPoints.length - 1];
+          const accepted = shouldAcceptGpsPoint(
+            previousPoint,
+            point
+          );
 
+          if (!accepted) {
+            console.log(
+              "GPS point rejected",
+              {
+                accuracy: point.accuracy,
+                latitude: point.latitude,
+                longitude: point.longitude,
+              }
+            );
+
+            return;
+          }
+
+          if (previousPoint) {
             const addedDistance =
               calculateDistanceKm(
                 previousPoint.latitude,
@@ -466,12 +485,18 @@ export default function Home() {
                 point.longitude
               );
 
-            setDistanceKm((currentDistance) => {
-              return currentDistance + addedDistance;
-            });
+            setDistanceKm(
+              (currentDistance) =>
+                currentDistance + addedDistance
+            );
+          }
 
-            return [...currentPoints, point];
-          });
+          lastAcceptedPoint.current = point;
+
+          setRunPoints((currentPoints) => [
+            ...currentPoints,
+            point,
+          ]);
         },
 
         (error) => {
@@ -1049,7 +1074,40 @@ export default function Home() {
             />
 
           </div>
+          
+          <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800">
 
+            {runPoints.length > 0 ? (
+
+              <RunMap
+                points={runPoints}
+              />
+
+            ) : (
+
+              <div className="flex h-[400px] items-center justify-center bg-zinc-950">
+
+                <div className="text-center">
+
+                  <p className="text-4xl">
+                    🗺️
+                  </p>
+
+                  <p className="mt-3 font-semibold text-zinc-300">
+                    Your route will appear here
+                  </p>
+
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Start your run to begin GPS tracking.
+                  </p>
+
+                </div>
+
+              </div>
+
+            )}
+
+          </div>
 
           {/* GPS ERROR */}
 
@@ -1091,7 +1149,9 @@ export default function Home() {
 
           {runActive && (
             <p className="mt-4 text-center text-xs text-zinc-500">
-              GPS points recorded: {runPoints.length}
+              Valid GPS points: {runPoints.length}
+              {gpsAccuracy !== null &&
+                ` • Current accuracy ±${Math.round(gpsAccuracy)} m`}
             </p>
           )}
 
@@ -1174,6 +1234,53 @@ function ModeButton({
     </button>
 
   );
+}
+
+function shouldAcceptGpsPoint(
+  previous: RunPoint | null,
+  current: RunPoint
+) {
+  // Reject inaccurate GPS readings
+  if (current.accuracy > 30) {
+    return false;
+  }
+
+  // Always accept the first reasonably accurate point
+  if (!previous) {
+    return true;
+  }
+
+  const distanceKm = calculateDistanceKm(
+    previous.latitude,
+    previous.longitude,
+    current.latitude,
+    current.longitude
+  );
+
+  const distanceMeters = distanceKm * 1000;
+
+  // Ignore tiny GPS drift
+  if (distanceMeters < 5) {
+    return false;
+  }
+
+  const timeSeconds =
+    (current.timestamp - previous.timestamp) / 1000;
+
+  if (timeSeconds <= 0) {
+    return false;
+  }
+
+  const speedMetersPerSecond =
+    distanceMeters / timeSeconds;
+
+  // Reject impossible jumps.
+  // 10 m/s = 36 km/h, well above normal running speed.
+  if (speedMetersPerSecond > 10) {
+    return false;
+  }
+
+  return true;
 }
 
 function calculateDistanceKm(
