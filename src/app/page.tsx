@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Challenge = {
   title: string;
@@ -49,6 +49,38 @@ export default function Home() {
     reason: string;
     observation: string;
   } | null>(null);
+  const [totalXp, setTotalXp] = useState(() => {
+    if (typeof window === "undefined") {
+      return 0;
+    }
+
+    return Number(
+      localStorage.getItem("wildmiles_total_xp") || 0
+    );
+  });
+
+  const [completedQuestCount, setCompletedQuestCount] = useState(() => {
+    if (typeof window === "undefined") {
+      return 0;
+    }
+
+    return Number(
+      localStorage.getItem("wildmiles_completed_quests") || 0
+    );
+  });
+  const [verifiedPhotoCount, setVerifiedPhotoCount] = useState(() => {
+    if (typeof window === "undefined") {
+      return 0;
+    }
+
+    return Number(
+      localStorage.getItem("wildmiles_verified_photos") || 0
+    );
+  });
+  const [questRewardSaved, setQuestRewardSaved] = useState(false);
+
+  const playerLevel = getPlayerLevel(totalXp);
+  const unlockedBadges = getUnlockedBadges();
 
   async function generateQuest() {
     try {
@@ -79,6 +111,7 @@ export default function Home() {
       setCompletedChallenges([]);
       setPhotoPreview(null);
       setPhotoResult(null);
+      setQuestRewardSaved(false);
       setQuest(data.quest);
     } catch (error) {
       console.error(error);
@@ -94,13 +127,22 @@ export default function Home() {
   }
 
   function toggleChallenge(type: string) {
-    setCompletedChallenges((current) => {
-      if (current.includes(type)) {
-        return current.filter((item) => item !== type);
-      }
+    let updatedChallenges: string[];
 
-      return [...current, type];
-    });
+    if (completedChallenges.includes(type)) {
+      updatedChallenges = completedChallenges.filter(
+        (item) => item !== type
+      );
+    } else {
+      updatedChallenges = [
+        ...completedChallenges,
+        type,
+      ];
+    }
+
+    setCompletedChallenges(updatedChallenges);
+
+    saveQuestCompletion(updatedChallenges);
   }
 
   function getEarnedXp() {
@@ -188,10 +230,25 @@ export default function Home() {
         data.verification.verified &&
         !completedChallenges.includes("photo")
       ) {
-        setCompletedChallenges((current) => [
-          ...current,
+        const updatedChallenges = [
+          ...completedChallenges,
           "photo",
-        ]);
+        ];
+
+        setCompletedChallenges(updatedChallenges);
+
+        setVerifiedPhotoCount((current) => {
+          const updated = current + 1;
+
+          localStorage.setItem(
+            "wildmiles_verified_photos",
+            String(updated)
+          );
+
+          return updated;
+        });
+
+        saveQuestCompletion(updatedChallenges);
       }
     } catch (error) {
       console.error(error);
@@ -203,6 +260,132 @@ export default function Home() {
       );
     } finally {
       setPhotoVerifying(false);
+    }
+  }
+
+  function getPlayerLevel(xp: number) {
+    if (xp >= 3500) {
+      return {
+        level: 5,
+        name: "Adventure Master",
+        emoji: "🏔️",
+        nextLevelXp: null,
+      };
+    }
+
+    if (xp >= 2000) {
+      return {
+        level: 4,
+        name: "Quest Runner",
+        emoji: "🧭",
+        nextLevelXp: 3500,
+      };
+    }
+
+    if (xp >= 1000) {
+      return {
+        level: 3,
+        name: "Outdoor Explorer",
+        emoji: "🌳",
+        nextLevelXp: 2000,
+      };
+    }
+
+    if (xp >= 500) {
+      return {
+        level: 2,
+        name: "Trail Curious",
+        emoji: "🌿",
+        nextLevelXp: 1000,
+      };
+    }
+
+    return {
+      level: 1,
+      name: "Grass Rookie",
+      emoji: "🌱",
+      nextLevelXp: 500,
+    };
+  }
+
+  function getUnlockedBadges() {
+    const badges = [];
+
+    if (completedQuestCount >= 1) {
+      badges.push({
+        name: "First Touch",
+        emoji: "🌱",
+        description: "Completed your first WildMiles quest.",
+      });
+    }
+
+    if (verifiedPhotoCount >= 1) {
+      badges.push({
+        name: "Proof of Grass",
+        emoji: "📸",
+        description: "Passed your first AI photo verification.",
+      });
+    }
+
+    if (completedQuestCount >= 3) {
+      badges.push({
+        name: "Quest Streak",
+        emoji: "🔥",
+        description: "Completed 3 WildMiles quests.",
+      });
+    }
+
+    if (verifiedPhotoCount >= 5) {
+      badges.push({
+        name: "Nature Seeker",
+        emoji: "🌳",
+        description: "Completed 5 verified photo challenges.",
+      });
+    }
+
+    return badges;
+  }
+
+  function saveQuestCompletion(completed: string[]) {
+    if (!quest) return;
+
+    if (
+      completed.length === 4 &&
+      !questRewardSaved
+    ) {
+      let earnedXp = 0;
+
+      Object.values(quest.challenges).forEach((challenge) => {
+        if (completed.includes(challenge.type)) {
+          earnedXp += challenge.xp;
+        }
+      });
+
+      earnedXp += quest.completionBonus;
+
+      setTotalXp((current) => {
+        const updated = current + earnedXp;
+
+        localStorage.setItem(
+          "wildmiles_total_xp",
+          String(updated)
+        );
+
+        return updated;
+      });
+
+      setCompletedQuestCount((current) => {
+        const updated = current + 1;
+
+        localStorage.setItem(
+          "wildmiles_completed_quests",
+          String(updated)
+        );
+
+        return updated;
+      });
+
+      setQuestRewardSaved(true);
     }
   }
 
@@ -230,6 +413,124 @@ export default function Home() {
 
         </header>
 
+        <section className="mb-8 rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
+
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+
+            <div>
+
+              <p className="text-sm uppercase tracking-widest text-zinc-500">
+                Your WildMiles Level
+              </p>
+
+              <h2 className="mt-2 text-2xl font-bold">
+                {playerLevel.emoji} Level {playerLevel.level}
+              </h2>
+
+              <p className="mt-1 text-lime-400">
+                {playerLevel.name}
+              </p>
+
+            </div>
+
+
+            <div className="text-left sm:text-right">
+
+              <p className="text-sm text-zinc-500">
+                Total XP
+              </p>
+
+              <p className="text-3xl font-bold">
+                {totalXp}
+              </p>
+
+            </div>
+
+          </div>
+
+
+          {playerLevel.nextLevelXp && (
+
+            <div className="mt-6">
+
+              <div className="mb-2 flex justify-between text-sm text-zinc-400">
+
+                <span>
+                  Level progress
+                </span>
+
+                <span>
+                  {totalXp} / {playerLevel.nextLevelXp} XP
+                </span>
+
+              </div>
+
+              <div className="h-3 overflow-hidden rounded-full bg-zinc-800">
+
+                <div
+                  className="h-full bg-lime-400 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(
+                      (totalXp / playerLevel.nextLevelXp) * 100,
+                      100
+                    )}%`,
+                  }}
+                />
+
+              </div>
+
+            </div>
+
+          )}
+
+        </section>
+
+        {unlockedBadges.length > 0 && (
+
+          <section className="mb-8">
+
+            <p className="mb-3 text-sm uppercase tracking-widest text-zinc-500">
+              Badges
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+
+              {unlockedBadges.map((badge) => (
+
+                <div
+                  key={badge.name}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
+                >
+
+                  <div className="flex items-start gap-3">
+
+                    <div className="text-3xl">
+                      {badge.emoji}
+                    </div>
+
+                    <div>
+
+                      <p className="font-semibold">
+                        {badge.name}
+                      </p>
+
+                      <p className="mt-1 text-sm text-zinc-400">
+                        {badge.description}
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              ))}
+
+            </div>
+
+          </section>
+
+        )}
 
         {/* QUEST SETTINGS */}
 
