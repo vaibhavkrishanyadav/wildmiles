@@ -12,10 +12,21 @@ type RunPoint = {
 
 type RunMapProps = {
   points: RunPoint[];
+  checkpoints: QuestCheckpoint[];
+};
+
+type QuestCheckpoint = {
+  type: string;
+  title: string;
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+  distanceKm: number;
 };
 
 export default function RunMap({
   points,
+  checkpoints,
 }: RunMapProps) {
   const mapContainerRef =
     useRef<HTMLDivElement | null>(null);
@@ -29,6 +40,7 @@ export default function RunMap({
   const currentPositionRef =
     useRef<L.CircleMarker | null>(null);
 
+  const checkpointMarkersRef = useRef<L.Marker[]>([]);
 
   /*
    * Create map once.
@@ -155,6 +167,126 @@ export default function RunMap({
 
   }, [points]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map) {
+      return;
+    }
+
+    /*
+    * Remove old markers before
+    * rebuilding the checkpoint layer.
+    */
+    checkpointMarkersRef.current.forEach(
+      (marker) => {
+        marker.remove();
+      }
+    );
+
+    checkpointMarkersRef.current = [];
+
+
+    checkpoints.forEach(
+      (checkpoint) => {
+
+        let emoji = "📍";
+
+        if (
+          checkpoint.type ===
+          "movement"
+        ) {
+          emoji = "🏃";
+        }
+
+        if (
+          checkpoint.type ===
+          "exploration"
+        ) {
+          emoji = "🧭";
+        }
+
+        if (
+          checkpoint.type ===
+          "photo"
+        ) {
+          emoji = "📸";
+        }
+
+        if (
+          checkpoint.type ===
+          "finish"
+        ) {
+          emoji = "🏁";
+        }
+
+
+        const icon = L.divIcon({
+          className:
+            "wildmiles-checkpoint",
+
+          html: `
+            <div
+              style="
+                width: 38px;
+                height: 38px;
+                border-radius: 50%;
+                background: #18181b;
+                border: 2px solid #a3e635;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                box-shadow:
+                  0 4px 12px rgba(0,0,0,0.4);
+              "
+            >
+              ${emoji}
+            </div>
+          `,
+
+          iconSize: [38, 38],
+
+          iconAnchor: [19, 19],
+        });
+
+
+        const marker = L.marker(
+          [
+            checkpoint.latitude,
+            checkpoint.longitude,
+          ],
+          {
+            icon,
+            title:
+              checkpoint.title,
+          }
+        )
+          .addTo(map)
+          .bindPopup(`
+            <div>
+              <strong>
+                ${emoji}
+                ${checkpoint.title}
+              </strong>
+
+              <br />
+
+              Completed at
+              ${checkpoint.distanceKm.toFixed(
+                2
+              )} km
+            </div>
+          `);
+
+
+        checkpointMarkersRef.current.push(
+          marker
+        );
+      }
+    );
+
+  }, [checkpoints]);
 
   return (
     <div

@@ -40,6 +40,15 @@ type RunPoint = {
   timestamp: number;
 };
 
+type QuestCheckpoint = {
+  type: string;
+  title: string;
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+  distanceKm: number;
+};
+
 export default function Home() {
   const [duration, setDuration] = useState(30);
   const [difficulty, setDifficulty] = useState("easy");
@@ -66,7 +75,6 @@ export default function Home() {
       localStorage.getItem("wildmiles_total_xp") || 0
     );
   });
-
   const [completedQuestCount, setCompletedQuestCount] = useState(() => {
     if (typeof window === "undefined") {
       return 0;
@@ -80,7 +88,6 @@ export default function Home() {
     if (typeof window === "undefined") {
       return 0;
     }
-
     return Number(
       localStorage.getItem("wildmiles_verified_photos") || 0
     );
@@ -94,6 +101,7 @@ export default function Home() {
   const [gpsError, setGpsError] = useState("");
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [runFinished, setRunFinished] = useState(false);
+  const [questCheckpoints, setQuestCheckpoints] = useState<QuestCheckpoint[]>([]);
 
   const gpsWatchId = useRef<number | null>(null);
   const timerId = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -137,6 +145,7 @@ export default function Home() {
       setPhotoPreview(null);
       setPhotoResult(null);
       setQuestRewardSaved(false);
+      setQuestCheckpoints([]);
       setQuest(data.quest);
     } catch (error) {
       console.error(error);
@@ -152,22 +161,88 @@ export default function Home() {
   }
 
   function toggleChallenge(type: string) {
+    if (!quest) {
+      return;
+    }
+
     let updatedChallenges: string[];
 
     if (completedChallenges.includes(type)) {
-      updatedChallenges = completedChallenges.filter(
-        (item) => item !== type
+      updatedChallenges =
+        completedChallenges.filter(
+          (item) => item !== type
+        );
+
+      setQuestCheckpoints((current) =>
+        current.filter(
+          (checkpoint) =>
+            checkpoint.type !== type
+        )
       );
     } else {
       updatedChallenges = [
         ...completedChallenges,
         type,
       ];
+
+      const challenge =
+        Object.values(
+          quest.challenges
+        ).find(
+          (item) =>
+            item.type === type
+        );
+
+      if (challenge) {
+        recordQuestCheckpoint(
+          type,
+          challenge.title
+        );
+      }
     }
 
-    setCompletedChallenges(updatedChallenges);
+    setCompletedChallenges(
+      updatedChallenges
+    );
 
-    saveQuestCompletion(updatedChallenges);
+    saveQuestCompletion(
+      updatedChallenges
+    );
+  }
+
+  function recordQuestCheckpoint(
+    type: string,
+    title: string
+  ) {
+    const latestPoint =
+      runPoints[runPoints.length - 1];
+
+    if (!latestPoint) {
+      return;
+    }
+
+    const alreadyRecorded =
+      questCheckpoints.some(
+        (checkpoint) => checkpoint.type === type
+      );
+
+    if (alreadyRecorded) {
+      return;
+    }
+
+    const checkpoint: QuestCheckpoint = {
+      type,
+      title,
+      latitude: latestPoint.latitude,
+      longitude: latestPoint.longitude,
+      timestamp: Date.now(),
+      distanceKm,
+    };
+
+    setQuestCheckpoints((current) => [
+      ...current,
+      checkpoint,
+    ]);
   }
 
   function getEarnedXp() {
@@ -261,6 +336,11 @@ export default function Home() {
         ];
 
         setCompletedChallenges(updatedChallenges);
+
+        recordQuestCheckpoint(
+          "photo",
+          quest.challenges.photo.title
+        );
 
         setVerifiedPhotoCount((current) => {
           const updated = current + 1;
@@ -941,6 +1021,7 @@ export default function Home() {
                 challenge={quest.challenges.movement}
                 completed={completedChallenges.includes("movement")}
                 onToggle={() => toggleChallenge("movement")}
+                runActive={runActive}
               />
 
               <ChallengeCard
@@ -948,6 +1029,7 @@ export default function Home() {
                 challenge={quest.challenges.exploration}
                 completed={completedChallenges.includes("exploration")}
                 onToggle={() => toggleChallenge("exploration")}
+                runActive={runActive}
               />
 
               <PhotoChallengeCard
@@ -958,6 +1040,7 @@ export default function Home() {
                 verifying={photoVerifying}
                 onPhotoUpload={handlePhotoUpload}
                 onVerify={verifyPhoto}
+                runActive={runActive}
               />
 
               <ChallengeCard
@@ -965,6 +1048,7 @@ export default function Home() {
                 challenge={quest.challenges.finish}
                 completed={completedChallenges.includes("finish")}
                 onToggle={() => toggleChallenge("finish")}
+                runActive={runActive}
               />
 
             </div>
@@ -1081,6 +1165,7 @@ export default function Home() {
 
               <RunMap
                 points={runPoints}
+                checkpoints={questCheckpoints}
               />
 
             ) : (
@@ -1105,6 +1190,60 @@ export default function Home() {
 
               </div>
 
+            )}
+
+            {quest && (
+              <div className="border-t border-zinc-800 bg-zinc-950 p-4">
+
+                <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500">
+                  Quest Checkpoints
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+
+                  <CheckpointStatus
+                    emoji="🏃"
+                    label="Movement"
+                    completed={
+                      completedChallenges.includes(
+                        "movement"
+                      )
+                    }
+                  />
+
+                  <CheckpointStatus
+                    emoji="🧭"
+                    label="Explore"
+                    completed={
+                      completedChallenges.includes(
+                        "exploration"
+                      )
+                    }
+                  />
+
+                  <CheckpointStatus
+                    emoji="📸"
+                    label="Photo"
+                    completed={
+                      completedChallenges.includes(
+                        "photo"
+                      )
+                    }
+                  />
+
+                  <CheckpointStatus
+                    emoji="🏁"
+                    label="Finish"
+                    completed={
+                      completedChallenges.includes(
+                        "finish"
+                      )
+                    }
+                  />
+
+                </div>
+
+              </div>
             )}
 
           </div>
@@ -1233,6 +1372,46 @@ function ModeButton({
 
     </button>
 
+  );
+}
+
+function CheckpointStatus({
+  emoji,
+  label,
+  completed,
+}: {
+  emoji: string;
+  label: string;
+  completed: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl border p-3 ${
+        completed
+          ? "border-lime-800 bg-lime-950/30"
+          : "border-zinc-800 bg-zinc-900"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+
+        <span>
+          {completed
+            ? "✅"
+            : emoji}
+        </span>
+
+        <span
+          className={
+            completed
+              ? "text-sm text-lime-300"
+              : "text-sm text-zinc-400"
+          }
+        >
+          {label}
+        </span>
+
+      </div>
+    </div>
   );
 }
 
@@ -1366,11 +1545,13 @@ function ChallengeCard({
   challenge,
   completed,
   onToggle,
+  runActive,
 }: {
   emoji: string;
   challenge: Challenge;
   completed: boolean;
   onToggle: () => void;
+  runActive: boolean;
 }) {
   return (
     <div
@@ -1416,13 +1597,18 @@ function ChallengeCard({
 
           <button
             onClick={onToggle}
+            disabled={!runActive}
             className={`mt-4 rounded-lg px-4 py-2 text-sm font-semibold transition ${
               completed
                 ? "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
                 : "bg-lime-400 text-black hover:bg-lime-300"
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-40`}
           >
-            {completed ? "Undo" : "Complete Challenge"}
+            {!runActive && !completed
+              ? "Start Run First"
+              : completed
+                ? "Undo"
+                : "Complete Challenge"}
           </button>
 
         </div>
@@ -1439,6 +1625,7 @@ function PhotoChallengeCard({
   verifying,
   onPhotoUpload,
   onVerify,
+  runActive,
 }: {
   challenge: Challenge;
   completed: boolean;
@@ -1459,6 +1646,7 @@ function PhotoChallengeCard({
   ) => void;
 
   onVerify: () => void;
+  runActive: boolean;
 }) {
   return (
     <div
@@ -1499,7 +1687,7 @@ function PhotoChallengeCard({
 
           {/* PHOTO UPLOAD */}
 
-          {!completed && (
+          {!completed && runActive && (
             <div className="mt-5">
 
               <label className="inline-block cursor-pointer rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-200 transition hover:bg-zinc-700">
@@ -1519,6 +1707,11 @@ function PhotoChallengeCard({
             </div>
           )}
 
+          {!runActive && !completed && (
+            <p className="mt-4 text-sm text-zinc-500">
+              Start your run before completing this challenge.
+            </p>
+          )}
 
           {/* IMAGE PREVIEW */}
 
