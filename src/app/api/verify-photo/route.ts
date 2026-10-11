@@ -78,7 +78,7 @@ satisfies the challenge.
 `;
 
     const ollamaResponse = await fetch(
-      "http://localhost:11434/api/generate",
+      "http://localhost:11434/api/chat",
       {
         method: "POST",
         headers: {
@@ -87,10 +87,19 @@ satisfies the challenge.
 
         body: JSON.stringify({
           model: "gemma3:4b",
-          prompt,
-          images: [base64Image],
+
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+              images: [base64Image],
+            },
+          ],
+
           stream: false,
+
           format: verificationSchema,
+
           options: {
             temperature: 0,
           },
@@ -99,14 +108,15 @@ satisfies the challenge.
     );
 
     if (!ollamaResponse.ok) {
+      const errorText = await ollamaResponse.text();
       throw new Error(
-        `Ollama verification failed: ${ollamaResponse.status}`
+        `Ollama verification failed: ${ollamaResponse.status} - ${errorText}`
       );
     }
 
     const data = await ollamaResponse.json();
 
-    const verification = JSON.parse(data.response);
+    const verification = JSON.parse(data.message.content);
 
     return Response.json({
       success: true,
